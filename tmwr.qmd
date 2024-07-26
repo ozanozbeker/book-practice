@@ -1,0 +1,66 @@
+---
+title: "Tidy Modeling With R"
+format: html
+---
+
+```{r}
+#| label: initialize
+
+library(tidymodels)
+tidymodels_prefer()
+```
+
+```{r}
+#| label: data
+
+set.seed(502)
+
+ames = modeldata::ames |> mutate(Sale_Price = log10(Sale_Price))
+
+ames_split = initial_split(ames, prop = 0.8, strata = Sale_Price)
+ames_train = training(ames_split)
+ames_test = testing(ames_split)
+```
+
+```{r}
+#| label: lm_model
+
+lm_model = linear_reg() |> 
+  set_engine("lm")
+
+ames_rec = 
+  recipe(
+    Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + Latitude + Longitude, 
+    data = ames_train) |> 
+  step_log(Gr_Liv_Area, base = 10) |> 
+  step_other(Neighborhood, threshold = 0.01, id = "my_id") |> 
+  step_dummy(all_nominal_predictors()) |> 
+  step_interact( ~ Gr_Liv_Area:starts_with("Bldg_Type_") ) |> 
+  step_ns(Latitude, Longitude, deg_free = 20)
+
+lm_wflow = workflow() |> 
+  add_model(lm_model) |> 
+  add_recipe(ames_rec)
+
+lm_fit = fit(lm_wflow, ames_train)
+```
+
+```{r}
+#| label: rf_model
+
+rf_model = rand_forest(trees = 1000) |> 
+  set_engine("ranger") |> 
+  set_mode("regression")
+
+rf_wflow = workflow() |> 
+  add_model(rf_model) |> 
+  add_formula(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + Latitude + Longitude)
+  
+set.seed(1001)
+ames_folds = vfold_cv(ames_train)
+
+keep_pred = control_resamples(save_pred = TRUE, save_workflow = TRUE)
+
+set.seed(1003)
+rf_res = fit_resamples(rf_wflow, resamples = ames_folds, control = keep_pred)
+```
